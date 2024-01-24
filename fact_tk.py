@@ -106,6 +106,7 @@ def set_FacT(model, dim=8, s=1):
             _.s = s
             _.dim = dim
             _.idx = vit.idx
+            vit.idx += 4
             bound_method = fact_forward_attn.__get__(_, _.__class__)
             setattr(_, 'forward', bound_method)
         elif type(_) == timm.models.vision_transformer.Mlp:
@@ -122,7 +123,7 @@ def set_FacT(model, dim=8, s=1):
 def fact_forward_attn(self, x):
     B, N, C = x.shape()
     # 计算出当前对应的FacTc
-    FacTc = vit.FacTc @ vit.FacTp[:, self.idx:self.idx + 4]
+    FacTc = vit.FacTc @ vit.FacTp[:, self.idx:self.idx + 4] # shape (r, r, 4)
     q_FacTc, k_FacTc, v_FacTc, proj_FacTc = FacTc[:, :, 0], FacTc[:, :, 1], FacTc[:, :, 2], FacTc[:, :, 3]
     qkv = self.qkv(x)
     # 使用FacTu和FacTv还原原来的权重矩阵，等于是原来的全连接层
@@ -145,7 +146,8 @@ def fact_forward_attn(self, x):
 
 def fact_forward_mlp(self, x):
     B, N, C = x.shape()
-    FacTc = vit.FacTc @ vit.FacTp[:, self.idx : self.idx + 8]
+    FacTc = vit.FacTc @ vit.FacTp[:, self.idx : self.idx + 8] # shape(r, r, 8)
+    # fc2之后转置了
     fc1_FacTc, fc2_FacTc = FacTc[:, :, :4].reshape(self.dim, self.dim * 4), FacTc[:, :, 4:].reshape(self.dim, self.dim * 4)
     h = self.fc1(x) # 因为FacT是建立的增量矩阵而不是整个模型，所以要把pretrained的模型的forward结果加上
     h += vit.FacTv(self.dp(vit.FacTu(x) @ fc1_FacTc).reshape(B, N, 4, self.dim)).reshape(B, N, 4 * C) * self.s

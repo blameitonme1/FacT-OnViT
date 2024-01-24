@@ -86,7 +86,7 @@ def set_seed(seed=0):
 def fact_forward_attn(self, x):
     # 在FacT框架下的自注意力多头池化
     B, N, C = x.shape()
-    qkv = self.qkv(x)
+    qkv = self.qkv(x) # pretrained模型的qkv
     # 计算查询（q）、键（k）和值（v）的投影, 暂时当作抽象黑盒
     q = vit.FacTv(self.dp(self.q_FacTs(vit.FacTu(x))))
     k = vit.FacTv(self.dp(self.k_FacTs(vit.FacTu(x))))
@@ -105,7 +105,7 @@ def fact_forward_attn(self, x):
     # attn, v的shape：（B, num_heads, N, C // self.num_heads）
     # 这样X就回到B, N, C,其中C是经过全连接投影之后的元素长度，没有改变，因为是(C, C)的全连接
     x = (attn @ v).transpose(1, 2).reshape(B, N, C)
-    proj = self.proj(x) # W_o的全连接
+    proj = self.proj(x) # 原本的被冻结的权重W_o的forward结果
     # 实现残差连接,dp是dropout
     proj += vit.FacTv(self.dp(self.proj_FacTs(vit.FacTu(x)))) * self.s
     x = self.proj_drop(proj)
@@ -122,7 +122,7 @@ def fact_forward_mlp(self, x):
     x = self.drop(x)
     h = self.fc2(x)
     x = x.reshape(B, N, 4, C)
-    h += vit.FacT(self.dp(self.fc2_FacTs(vit.Factu(x).reshape(
+    h += vit.FacTv(self.dp(self.fc2_FacTs(vit.Factu(x).reshape(
         B, N, 4 * self.dim
     )))) * self.s
     x = self.drop(h)
@@ -138,7 +138,7 @@ def set_FacT(model, dim=8, s=1):
     for _ in model.children():
         # 遍历模型各个模块
         if type(_) == timm.models.vision_transformer.Attention:
-            # 注意力模块
+            # 注意力模块,这四个层对应了论文的SIGMAX
             _.q_FacTs = nn.Linear(dim, dim, bias=False)
             _.k_FacTs = nn.Linear(dim, dim, bias=False)
             _.v_FacTs = nn.Linear(dim, dim, bias=False)
