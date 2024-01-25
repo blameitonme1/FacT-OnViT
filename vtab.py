@@ -79,7 +79,6 @@ def get_data(name, evaluate=True, batch_size=64):
     transform = transforms.Compose([
         transforms.Resize((224,224), interpolation=3),
         transforms.ToTensor(),
-        transforms.Normalize(mean=[]),
         transforms.Normalize(mean=[0.485, 0.456, 0.406], std=[0.229, 0.224, 0.225])]
     )
     if evaluate:
@@ -88,14 +87,14 @@ def get_data(name, evaluate=True, batch_size=64):
             ImageFilelist(root=root, flist=root + "/train800val200.txt",
                           transform=transform),
             batch_size=batch_size, shuffle=True, drop_last=True,
-            num_workers=0, pin_memory=True
+            num_workers=1, pin_memory=True
         )
         # 这里batch_size设置更大因为验证集更少，并且不需要更新模型
         val_loader = data.DataLoader(
             ImageFilelist(root=root, flist=root + "/test.txt",
                           transform=transform),
             batch_size=256, shuffle=False,
-            num_workers=0, pin_memory=True
+            num_workers=1, pin_memory=True
         )
     else:
         # 训练，使用验证集
@@ -103,13 +102,13 @@ def get_data(name, evaluate=True, batch_size=64):
             ImageFilelist(root=root, flist=root + "/train800.txt",
                           transform=transform),
             batch_size=batch_size, shuffle=True, drop_last=True,
-            num_workers=0, pin_memory=True
+            num_workers=1, pin_memory=True
         )
         val_loader = data.DataLoader(
             ImageFilelist(root=root, flist=root + "/val200.txt",
                           transform=transform),
             batch_size=256, shuffle=False,
-            num_workers=0, pin_memory=True
+            num_workers=1, pin_memory=True
         )
     return train_loader, val_loader
 

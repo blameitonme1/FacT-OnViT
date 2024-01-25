@@ -1,6 +1,6 @@
 import torch
 from torch import nn
-from torch.utils.data import Dataloader
+from torch.utils.data import DataLoader
 from torch.optim import AdamW
 from torch.nn import functional as F
 from avalanche.evaluation.metrics.accuracy import Accuracy
@@ -115,14 +115,14 @@ def fact_forward_mlp(self, x):
     # FacT框架下进行FFN,比平常FFN多了残差和dropout，Factu和FacTv分别是论文decompose之后的U和V向量
     B, N, C = x.shape()
     h = self.fc1(x)
-    h += vit.FacTv(self.dp(self.fc1_FacTs(vit.Factu(x))).reshape(B, N, 4, self.dim)).reshape(
+    h += vit.FacTv(self.dp(self.fc1_FacTs(vit.FacTu(x))).reshape(B, N, 4, self.dim)).reshape(
         B, N, 4 * C
     ) * self.s
     x = self.act(h) # 激活函数
     x = self.drop(x)
     h = self.fc2(x)
     x = x.reshape(B, N, 4, C)
-    h += vit.FacTv(self.dp(self.fc2_FacTs(vit.Factu(x).reshape(
+    h += vit.FacTv(self.dp(self.fc2_FacTs(vit.FacTu(x).reshape(
         B, N, 4 * self.dim
     )))) * self.s
     x = self.drop(h)
@@ -132,7 +132,7 @@ def set_FacT(model, dim=8, s=1):
     # s是缩放因子， dim是论文的r
     # 768是16x16x3，因为一个patch是16x16，并且有三个通道（RGB）
     if type(model) == timm.models.vision_transformer.VisionTransformer:
-        model.Factu = nn.Linear(768, dim, bias=False)
+        model.FacTu = nn.Linear(768, dim, bias=False)
         model.FacTv = nn.Linear(dim, 768, bias=False)
         nn.init.zeros_(model.FacTv.weight) # 论文V初始化为0
     for _ in model.children():
@@ -197,6 +197,7 @@ if __name__ == '__main__':
     vit.reset_classifier(get_classes_num(name)) # 设置模型分类器分类个数
     total_param = 0
     for n, p in vit.named_parameters():
+        # 我推测head是分类器的参数名字
         if 'FacT' in n or 'head' in n:
             trainable.append(p)
             if 'head' not in n:
