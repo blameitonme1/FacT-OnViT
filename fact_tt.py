@@ -39,6 +39,7 @@ def train(args, model, dl, opt, scheduler, epoch):
         
         if ep % 10 == 9:
             acc = test(vit, test_dl)[1]
+            print(acc)
             if acc > args.best_acc:
                 args.best_acc = acc
                 save(args, model, acc, ep)
@@ -85,7 +86,7 @@ def set_seed(seed=0):
 
 def fact_forward_attn(self, x):
     # 在FacT框架下的自注意力多头池化
-    B, N, C = x.shape()
+    B, N, C = x.shape
     qkv = self.qkv(x) # pretrained模型的qkv
     # 计算查询（q）、键（k）和值（v）的投影, 暂时当作抽象黑盒
     q = vit.FacTv(self.dp(self.q_FacTs(vit.FacTu(x))))
@@ -113,7 +114,7 @@ def fact_forward_attn(self, x):
 
 def fact_forward_mlp(self, x):
     # FacT框架下进行FFN,比平常FFN多了残差和dropout，Factu和FacTv分别是论文decompose之后的U和V向量
-    B, N, C = x.shape()
+    B, N, C = x.shape
     h = self.fc1(x)
     h += vit.FacTv(self.dp(self.fc1_FacTs(vit.FacTu(x))).reshape(B, N, 4, self.dim)).reshape(
         B, N, 4 * C
@@ -149,14 +150,14 @@ def set_FacT(model, dim=8, s=1):
             bound_method = fact_forward_attn.__get__(_, _.__class__)
             setattr(_, 'forward', bound_method) # 修改forward的时候应该进行的函数
         
-        elif type(_) == timm.models.vision_transformer.Mlp:
+        elif type(_) == timm.models.layers.mlp.Mlp:
             # 这里注意一下
             _.fc1_FacTs = nn.Linear(dim, dim * 4, bias=False)
             _.fc2_FacTs = nn.Linear(4 * dim, dim, bias=False)
             _.dim = dim
             _.s = s
             _.dp = nn.Dropout(0.1)
-            bound_method = fact_forward_mlp.__get__(_, _,_.__class__)
+            bound_method = fact_forward_mlp.__get__(_, _.__class__)
             setattr(_, 'forward', bound_method)
         elif len(list(_.children())) != 0:
             # 递归遍历处理transformer块的子模块
@@ -209,7 +210,7 @@ if __name__ == '__main__':
     print('total_param',total_param)
     # 只把trainable传递给opt，会计算梯度的只有这些参数（decompose之后的矩阵）
     opt = AdamW(trainable, lr=args.lr, weight_decay=args.wd)
-    scheduler = CosineLRScheduler(opt, t_initial=100, warmup_t=10, lr_min=1e-5, warmup_lr_init=1e-6, decay_rate=0.1)
+    scheduler = CosineLRScheduler(opt, t_initial=100, warmup_t=10, lr_min=1e-5, warmup_lr_init=1e-6)
     vit = train(args, vit, train_dl, opt, scheduler, epoch=100)
     print('acc1:', args.best_acc)
 
