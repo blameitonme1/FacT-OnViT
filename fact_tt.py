@@ -39,7 +39,6 @@ def train(args, model, dl, opt, scheduler, epoch):
         
         if ep % 10 == 9:
             acc = test(vit, test_dl)[1]
-            print(acc)
             if acc > args.best_acc:
                 args.best_acc = acc
                 save(args, model, acc, ep)
@@ -210,7 +209,7 @@ if __name__ == '__main__':
     print('total_param',total_param)
     # 只把trainable传递给opt，会计算梯度的只有这些参数（decompose之后的矩阵）
     opt = AdamW(trainable, lr=args.lr, weight_decay=args.wd)
-    scheduler = CosineLRScheduler(opt, t_initial=100, warmup_t=10, lr_min=1e-5, warmup_lr_init=1e-6)
+    scheduler = CosineLRScheduler(opt, t_initial=100, warmup_t=10, lr_min=1e-5, warmup_lr_init=1e-6, decay_rate=0.1)
     vit = train(args, vit, train_dl, opt, scheduler, epoch=100)
     print('acc1:', args.best_acc)
 

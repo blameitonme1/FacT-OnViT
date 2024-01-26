@@ -62,7 +62,7 @@ class ImageFilelist(data.Dataset):
     def __getitem__(self, index):
         # target就是label
         impath, target = self.imlist[index]
-        img = self.loader(os.path.join(self.root, impath))
+        img = self.loader(os.path.join(self.root, impath).replace('/', '\\'))
         if self.transform is not None:
             img = self.transform(img)
         if self.target_transform is not None:
@@ -72,9 +72,9 @@ class ImageFilelist(data.Dataset):
     def __len__(self):
         return len(self.imlist)
 
-def get_data(name, evaluate=True, batch_size=64):
+def get_data(name, evaluate=True, batch_size=16):
     # 得到某一个name指定的数据集的数据
-    root = './data/' + name
+    root = './data/caltech101/' + name
     # interpolation指定如何插值填充未知位置，注意compose参数是一个list
     transform = transforms.Compose([
         transforms.Resize((224,224), interpolation=3),
@@ -93,7 +93,7 @@ def get_data(name, evaluate=True, batch_size=64):
         val_loader = data.DataLoader(
             ImageFilelist(root=root, flist=root + "/test.txt",
                           transform=transform),
-            batch_size=256, shuffle=False,
+            batch_size=16, shuffle=False,
             num_workers=1, pin_memory=True
         )
     else:
@@ -107,7 +107,7 @@ def get_data(name, evaluate=True, batch_size=64):
         val_loader = data.DataLoader(
             ImageFilelist(root=root, flist=root + "/val200.txt",
                           transform=transform),
-            batch_size=256, shuffle=False,
+            batch_size=16, shuffle=False,
             num_workers=1, pin_memory=True
         )
     return train_loader, val_loader

@@ -1,6 +1,6 @@
 import torch
 from torch import nn
-from torch.utils.data import Dataloader
+from torch.utils.data import DataLoader
 from torch.optim import AdamW
 from torch.nn import functional as F
 from avalanche.evaluation.metrics.accuracy import Accuracy
@@ -109,7 +109,7 @@ def set_FacT(model, dim=8, s=1):
             vit.idx += 4
             bound_method = fact_forward_attn.__get__(_, _.__class__)
             setattr(_, 'forward', bound_method)
-        elif type(_) == timm.models.vision_transformer.Mlp:
+        elif type(_) == timm.models.layers.mlp.Mlp:
             _.dim = dim
             _.s = s
             _.dp = nn.Dropout(0.1)
@@ -121,7 +121,7 @@ def set_FacT(model, dim=8, s=1):
             set_FacT(_, dim, s)
 
 def fact_forward_attn(self, x):
-    B, N, C = x.shape()
+    B, N, C = x.shape
     # 计算出当前对应的FacTc
     FacTc = vit.FacTc @ vit.FacTp[:, self.idx:self.idx + 4] # shape (r, r, 4)
     q_FacTc, k_FacTc, v_FacTc, proj_FacTc = FacTc[:, :, 0], FacTc[:, :, 1], FacTc[:, :, 2], FacTc[:, :, 3]
@@ -129,8 +129,8 @@ def fact_forward_attn(self, x):
     # 使用FacTu和FacTv还原原来的权重矩阵，等于是原来的全连接层
     q = vit.FacTv(self.dp(vit.FacTu(x) @ q_FacTc))    
     k = vit.FacTv(self.dp(vit.FacTu(x) @ k_FacTc))    
-    q = vit.FacTv(self.dp(vit.FacTu(x) @ v_FacTc))    
-    qkv += torch.cat([q, k, v], dim=2) * self.save
+    v = vit.FacTv(self.dp(vit.FacTu(x) @ v_FacTc))    
+    qkv += torch.cat([q, k, v], dim=2) * self.s
     # 和tt一样的多头自注意力机制的计算
     qkv = qkv.reshape(B, N, 3, self.num_heads, C // self.num_heads).permute(2, 0, 3, 1, 4)
     q, k, v = qkv[0], qkv[1], qkv[2]
@@ -145,7 +145,7 @@ def fact_forward_attn(self, x):
     return x
 
 def fact_forward_mlp(self, x):
-    B, N, C = x.shape()
+    B, N, C = x.shape
     FacTc = vit.FacTc @ vit.FacTp[:, self.idx : self.idx + 8] # shape(r, r, 8)
     # fc2之后转置了
     fc1_FacTc, fc2_FacTc = FacTc[:, :, :4].reshape(self.dim, self.dim * 4), FacTc[:, :, 4:].reshape(self.dim, self.dim * 4)
@@ -156,7 +156,7 @@ def fact_forward_mlp(self, x):
     h = self.fc2(x)
     x = x.reshape(B, N, 4, C)
     h += vit.FacTv(self.dp(vit.FacTu(x).reshape(B, N, 4 * self.dim) @ fc2_FacTc.t())) * self.s
-    x = self.drop(h)
+    x = self.drop(h)  
     return x
 
 
@@ -174,7 +174,7 @@ if __name__ == '__main__':
     print(args)
     seed = args.seed
     set_seed(seed)
-    name = args.name
+    name = args.dataset
     args.best_acc = 0
     vit = create_model(args.model, checkpoint_path='./ViT-B_16.npz', drop_path_rate=0.1)
     train_dl, test_dl = get_data(name)
@@ -193,6 +193,9 @@ if __name__ == '__main__':
         if 'FacT' in n or 'head' in n:
             trainable.append(p)
             if 'head' not in n:
+                print(n)
+                print(p.shape)
+                print(p.numel())
                 total_param += p.numel()
         else:
             # 冻结参数
