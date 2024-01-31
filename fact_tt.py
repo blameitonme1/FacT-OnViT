@@ -13,41 +13,9 @@ from timm.scheduler.cosine_lr import CosineLRScheduler
 from argparse import ArgumentParser
 from vtab import *
 import yaml
-
+from slice import *
 threshold = 0.6
-def freeze_parameter(module, num_params_to_freeze):
-    # 第一次尝试，直接使用参数
-    gradients = [param.grad.data.abs().mean().item() if param.grad is not None else 0 for param in module.parameters()]
-    # 计算1阶泰勒展开
-    taylors = [grad * param.data for grad, param in zip(gradients, module.parameters())]
-    num_params = len(gradients)
-    sorted_indices = sorted(range(num_params), key=lambda i : taylors[i]) # 返回排序之后的列表
-    params_to_freeze = sorted_indices[:num_params_to_freeze]
-    # 冻结参数
-    num = 0
-    for i, param in enumerate(module.parameters()):
-        num += 1
-        if i in params_to_freeze:
-            param.requires_grad = False
-    print(num)
-    
-def freeze_FacT(model):
-    rank = model.dim
-    if type(model) == timm.models.vision_transformer.VisionTransformer:
-        freeze_parameter(model.FacTu, 768)
-        freeze_parameter(model.FacTv, 768)
-    for _ in model.children():
-        if type(_) == timm.models.vision_transformer.Attention:
-            freeze_parameter(_.q_FacTs, 2 * rank - 1)
-            freeze_parameter(_.k_FacTs, 2 * rank - 1)
-            freeze_parameter(_.v_FacTs, 2 * rank - 1)
-            freeze_parameter(_.proj_FacTs, 2 * rank - 1)
-        elif type(_) == timm.models.layers.mlp.Mlp:
-            freeze_parameter(_.fc1_FacTs, 4 *(2* rank - 1))
-            freeze_parameter(_.fc2_FacTs, 4 *(2* rank - 1))
-        elif len(list(_.children())) != 0:
-            freeze_FacT(_)
-    
+
 def backward_hook(module, grad_input, grad_output):
     # print(f"Gradient for module {module.__class__.__name__}: ", grad_input)
     total_params = sum(p.numel() for p in module.parameters())
@@ -236,6 +204,7 @@ if __name__ == '__main__':
         if 'FacT' in n or 'head' in n:
             trainable.append(p)
             if 'head' not in n:
+                print(f"1 name {n}, num {p.numel()}")
                 total_param += p.numel()
         else:
             p.requires_grad = False
@@ -244,12 +213,13 @@ if __name__ == '__main__':
     scheduler = CosineLRScheduler(opt, t_initial=100,
                                   warmup_t=10, lr_min=1e-5, warmup_lr_init=1e-6, decay_rate=0.1)
     
-    vit = train(args, vit, train_dl, opt, scheduler, epoch=0)
+    vit = train(args, vit, train_dl, opt, scheduler, epoch=1)
+    freeze_FacT(vit)
     total_param = 0
     for n, p in vit.named_parameters():
         if 'FacT' in n or 'head' in n:
             if 'head' not in n:
-                for param in p.named_parameters():
-                    print(param.shape)
+                print(f"2 name {n}, num {p.numel()}")
+                total_param += p.numel()
     print(total_param)
     print('acc1:', args.best_acc)
