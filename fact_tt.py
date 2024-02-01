@@ -14,16 +14,41 @@ from argparse import ArgumentParser
 from vtab import *
 import yaml
 from slice import *
-threshold = 0.6
 
 def backward_hook(module, grad_input, grad_output):
     # print(f"Gradient for module {module.__class__.__name__}: ", grad_input)
     total_params = sum(p.numel() for p in module.parameters())
-    
+
+def rank_descend(args, model, dl, opt, scheduler):
+    model = train(args, model, dl, opt, scheduler, epoch=1)
+    best_acc = args.best_acc
+    while True:
+        if args.best_acc < best_acc:
+            # 减少了rank训练还是不能回复正确率，说明rank已经到了最佳值了
+            model.load_state_dict(torch.load('./models/tt/' + args.name + '.pt'))
+            break
+        freeze_FacT(model)
+        show_trinable_and_updateOpt(model, opt)
+        model = model.cuda()
+        model = train(args, model, dl, opt, scheduler, epoch=1)
+
+def show_trinable_and_updateOpt(model, opt):
+    trainable = []
+    total_param = 0
+    for n, p in vit.named_parameters():
+        if 'FacT' in n or 'head' in n:
+            trainable.append(p)
+            if 'head' not in n:
+                # print(f"1 name {n}, num {p.numel()}")
+                total_param += p.numel()
+        else:
+            p.requires_grad = False
+    print(f"total_param is {total_param}, rank is {model.dim} now")
+    opt = AdamW(trainable, lr=args.lr, weight_decay=args.wd)
 
 def train(args, model, dl, opt, scheduler, epoch):
-    model.train()
     model = model.cuda()
+    model.train()
     pbar = tqdm(range(epoch))
     for ep in pbar:
         model.train()
@@ -47,7 +72,6 @@ def train(args, model, dl, opt, scheduler, epoch):
 
     model = model.cpu()
     return model
-
 
 @torch.no_grad()
 def test(model, dl):
@@ -92,7 +116,6 @@ def fact_forward_attn(self, x):
 def fact_forward_mlp(self, x):
     B, N, C = x.shape
     h = self.fc1(x)  # B n 4c
-    # print(x.size(), h.size())
     h += vit.FacTv(self.dp(self.fc1_FacTs(vit.FacTu(x))).reshape(
         B, N, 4, self.dim)).reshape(
         B, N, 4 * C) * self.s
@@ -169,7 +192,7 @@ def save(args, model, acc, ep):
             trainable[n] = p.data
     torch.save(trainable, 'models/tt/' + args.dataset + '.pt')
     with open('models/tt/' + args.dataset + '.log', 'w') as f:
-        f.write(str(ep) + ' ' + str(acc))
+        f.write(str(ep) + ' ' + str(acc) + ' ' + str(model.dim))
 
 
 if __name__ == '__main__':
@@ -204,7 +227,7 @@ if __name__ == '__main__':
         if 'FacT' in n or 'head' in n:
             trainable.append(p)
             if 'head' not in n:
-                print(f"1 name {n}, num {p.numel()}")
+                # print(f"1 name {n}, num {p.numel()}")
                 total_param += p.numel()
         else:
             p.requires_grad = False
@@ -213,13 +236,7 @@ if __name__ == '__main__':
     scheduler = CosineLRScheduler(opt, t_initial=100,
                                   warmup_t=10, lr_min=1e-5, warmup_lr_init=1e-6, decay_rate=0.1)
     
-    vit = train(args, vit, train_dl, opt, scheduler, epoch=1)
-    freeze_FacT(vit)
-    total_param = 0
-    for n, p in vit.named_parameters():
-        if 'FacT' in n or 'head' in n:
-            if 'head' not in n:
-                print(f"2 name {n}, num {p.numel()}")
-                total_param += p.numel()
-    print(total_param)
+    rank_descend(args, vit, train_dl, opt, scheduler)
+    vit = train(args, vit, train_dl, opt, scheduler, epoch=20)
     print('acc1:', args.best_acc)
+    print(f"optimal rank is {vit.dim}")
