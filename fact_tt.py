@@ -19,20 +19,35 @@ def backward_hook(module, grad_input, grad_output):
     # print(f"Gradient for module {module.__class__.__name__}: ", grad_input)
     total_params = sum(p.numel() for p in module.parameters())
 
-def rank_descend(args, model, dl, opt, scheduler):
-    model = train(args, model, dl, opt, scheduler, epoch=1)
+def rank_descend(args, model, dl):
+    global opt
+    global scheduler
+    model = train(args, model, dl, opt, scheduler, epoch=10)[0]
     best_acc = args.best_acc
+    cur_acc = best_acc
     while True:
-        if args.best_acc < best_acc:
+        print(f"cur_acc is {cur_acc}, best_acc = {best_acc}")
+        if cur_acc < best_acc:
             # 减少了rank训练还是不能回复正确率，说明rank已经到了最佳值了
-            model.load_state_dict(torch.load('./models/tt/' + args.name + '.pt'))
+            # 加载保存的模型参数
+            loaded_trainable = torch.load('models/tt/' + args.dataset + '.pt')
+            # 将加载的参数设置回模型中
+            for n, p in model.named_parameters():
+                if n in loaded_trainable:
+                    p.data = loaded_trainable[n]
             break
         freeze_FacT(model)
-        show_trinable_and_updateOpt(model, opt)
+        show_trinable_and_updateOpt(model)
         model = model.cuda()
-        model = train(args, model, dl, opt, scheduler, epoch=1)
+        model, cur_acc = train(args, model, dl, opt, scheduler, epoch=10)
+        save(args, model, cur_acc)
+        if cur_acc > best_acc:
+            best_acc = cur_acc
+    return model
 
-def show_trinable_and_updateOpt(model, opt):
+def show_trinable_and_updateOpt(model):
+    global opt
+    global scheduler
     trainable = []
     total_param = 0
     for n, p in vit.named_parameters():
@@ -45,8 +60,11 @@ def show_trinable_and_updateOpt(model, opt):
             p.requires_grad = False
     print(f"total_param is {total_param}, rank is {model.dim} now")
     opt = AdamW(trainable, lr=args.lr, weight_decay=args.wd)
+    scheduler = CosineLRScheduler(opt, t_initial=100,
+                                  warmup_t=10, lr_min=1e-5, warmup_lr_init=1e-6, decay_rate=0.1)
 
 def train(args, model, dl, opt, scheduler, epoch):
+    args.best_acc = 0
     model = model.cuda()
     model.train()
     pbar = tqdm(range(epoch))
@@ -67,11 +85,10 @@ def train(args, model, dl, opt, scheduler, epoch):
             acc = test(vit, test_dl)[1]
             if acc > args.best_acc:
                 args.best_acc = acc
-                save(args, model, acc, ep)
             pbar.set_description(str(acc) + '|' + str(args.best_acc))
 
     model = model.cpu()
-    return model
+    return model, args.best_acc
 
 @torch.no_grad()
 def test(model, dl):
@@ -220,23 +237,13 @@ if __name__ == '__main__':
         args.scale = config['scale']
     set_FacT(vit, dim=args.dim, s=args.scale)
 
-    trainable = []
-    vit.reset_classifier(get_classes_num(name))
-    total_param = 0
-    for n, p in vit.named_parameters():
-        if 'FacT' in n or 'head' in n:
-            trainable.append(p)
-            if 'head' not in n:
-                # print(f"1 name {n}, num {p.numel()}")
-                total_param += p.numel()
-        else:
-            p.requires_grad = False
-    print('total_param', total_param)
-    opt = AdamW(trainable, lr=args.lr, weight_decay=args.wd)
-    scheduler = CosineLRScheduler(opt, t_initial=100,
-                                  warmup_t=10, lr_min=1e-5, warmup_lr_init=1e-6, decay_rate=0.1)
     
-    rank_descend(args, vit, train_dl, opt, scheduler)
-    vit = train(args, vit, train_dl, opt, scheduler, epoch=20)
+    opt = None
+    scheduler = None
+    show_trinable_and_updateOpt(vit)
+    if opt == None:
+        print("error")
+    vit = rank_descend(args, vit, train_dl)
+    vit = train(args, vit, train_dl, opt, scheduler, epoch=20)[0]
     print('acc1:', args.best_acc)
     print(f"optimal rank is {vit.dim}")
