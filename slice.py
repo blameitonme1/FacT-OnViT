@@ -108,7 +108,10 @@ def trace_back_model(args, model):
             # 将加载的参数设置回模型中
     for n, p in model.named_parameters():
         if n in loaded_trainable:
+            print(f"{n}:")
+            print(p.shape)
             p.data = loaded_trainable[n]
+    
 
 def trace_back_FacT_setting(model):
     if type(model) == timm.models.vision_transformer.VisionTransformer:

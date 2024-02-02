@@ -24,7 +24,7 @@ def rank_descend(args, model, dl):
     global opt
     global scheduler
     model, best_acc = train(args, model, dl, opt, scheduler, epoch=10)
-    save_model_during_rankdescend(model, model.dim)
+    save_model_during_rankdescend(model)
     cur_acc = best_acc
     while True:
         prune_FacT(model)
@@ -34,19 +34,16 @@ def rank_descend(args, model, dl):
         print(f"cur_acc is {cur_acc}, best_acc = {best_acc}")
         if cur_acc > best_acc:
             best_acc = cur_acc
-            save_model_during_rankdescend(model, model.dim)
+            save_model_during_rankdescend(model)
         else:
             # 减少了rank训练还是不能回复正确率，说明rank已经到了最佳值了
             # 加载保存的模型参数
-            loaded_trainable = torch.load('models/tt/' + args.dataset + '_bestrank.pt')
-            # 将加载的参数设置回模型中
-            for n, p in model.named_parameters():
-                if n in loaded_trainable:
-                    p.data = loaded_trainable[n]
+            trace_back_model(args, model)
+            trace_back_FacT_setting(model)
             break
     return model
 
-def save_model_during_rankdescend(model, rank):
+def save_model_during_rankdescend(model):
     """ 降低rank的时候储存目前最合适的模型 """
     model.eval()
     model = model.cpu()
@@ -54,6 +51,7 @@ def save_model_during_rankdescend(model, rank):
     for n, p in vit.named_parameters():
         if 'FacT' in n or 'head' in n:
             trainable[n] = p.data
+    # trainable['rank'] = rank
     torch.save(trainable, 'models/tt/' + args.dataset + '_bestrank.pt')
 
 def show_trinable_and_updateOpt(model):
@@ -61,11 +59,11 @@ def show_trinable_and_updateOpt(model):
     global scheduler
     trainable = []
     total_param = 0
-    for n, p in vit.named_parameters():
+    for n, p in model.named_parameters():
         if 'FacT' in n or 'head' in n:
             trainable.append(p)
             if 'head' not in n:
-                print(f"1 name {n}, num {p.numel()}")
+                # print(f"1 name {n}, num {p.numel()}")
                 total_param += p.numel()
         else:
             p.requires_grad = False
@@ -145,6 +143,8 @@ def fact_forward_attn(self, x):
 def fact_forward_mlp(self, x):
     B, N, C = x.shape
     h = self.fc1(x)  # B n 4c
+
+
     h += vit.FacTv(self.dp(self.fc1_FacTs(vit.FacTu(x))).reshape(
         B, N, 4, self.dim)).reshape(
         B, N, 4 * C) * self.s
@@ -157,6 +157,9 @@ def fact_forward_mlp(self, x):
     x = self.drop(h)
     return x
 
+def add(model):
+    if type(model) == timm.models.vision_transformer.VisionTransformer:
+        model.dim += 1
 
 def set_FacT(model, dim=8, s=1):
     if type(model) == timm.models.vision_transformer.VisionTransformer:
@@ -254,6 +257,7 @@ if __name__ == '__main__':
     # if opt == None:
     #     print("error")
     vit = rank_descend(args, vit, train_dl)
+    show_trinable_and_updateOpt(vit)
     vit = train(args, vit, train_dl, opt, scheduler, epoch=30)[0]
     print('acc1:', args.best_acc)
     print(f"optimal rank is {vit.dim}")
