@@ -20,30 +20,41 @@ def backward_hook(module, grad_input, grad_output):
     total_params = sum(p.numel() for p in module.parameters())
 
 def rank_descend(args, model, dl):
+    # 逐步降低rank
     global opt
     global scheduler
-    model = train(args, model, dl, opt, scheduler, epoch=10)[0]
-    best_acc = args.best_acc
+    model, best_acc = train(args, model, dl, opt, scheduler, epoch=10)
+    save_model_during_rankdescend(model, model.dim)
     cur_acc = best_acc
     while True:
+        prune_FacT(model)
+        show_trinable_and_updateOpt(model)
+        model = model.cuda()
+        model, cur_acc = train(args, model, dl, opt, scheduler, epoch=10)
         print(f"cur_acc is {cur_acc}, best_acc = {best_acc}")
-        if cur_acc < best_acc:
+        if cur_acc > best_acc:
+            best_acc = cur_acc
+            save_model_during_rankdescend(model, model.dim)
+        else:
             # 减少了rank训练还是不能回复正确率，说明rank已经到了最佳值了
             # 加载保存的模型参数
-            loaded_trainable = torch.load('models/tt/' + args.dataset + '.pt')
+            loaded_trainable = torch.load('models/tt/' + args.dataset + '_bestrank.pt')
             # 将加载的参数设置回模型中
             for n, p in model.named_parameters():
                 if n in loaded_trainable:
                     p.data = loaded_trainable[n]
             break
-        freeze_FacT(model)
-        show_trinable_and_updateOpt(model)
-        model = model.cuda()
-        model, cur_acc = train(args, model, dl, opt, scheduler, epoch=10)
-        save(args, model, cur_acc)
-        if cur_acc > best_acc:
-            best_acc = cur_acc
     return model
+
+def save_model_during_rankdescend(model, rank):
+    """ 降低rank的时候储存目前最合适的模型 """
+    model.eval()
+    model = model.cpu()
+    trainable = {}
+    for n, p in vit.named_parameters():
+        if 'FacT' in n or 'head' in n:
+            trainable[n] = p.data
+    torch.save(trainable, 'models/tt/' + args.dataset + '_bestrank.pt')
 
 def show_trinable_and_updateOpt(model):
     global opt
@@ -54,7 +65,7 @@ def show_trinable_and_updateOpt(model):
         if 'FacT' in n or 'head' in n:
             trainable.append(p)
             if 'head' not in n:
-                # print(f"1 name {n}, num {p.numel()}")
+                print(f"1 name {n}, num {p.numel()}")
                 total_param += p.numel()
         else:
             p.requires_grad = False
@@ -85,6 +96,7 @@ def train(args, model, dl, opt, scheduler, epoch):
             acc = test(vit, test_dl)[1]
             if acc > args.best_acc:
                 args.best_acc = acc
+                save(args, model, acc, ep)
             pbar.set_description(str(acc) + '|' + str(args.best_acc))
 
     model = model.cpu()
@@ -236,14 +248,12 @@ if __name__ == '__main__':
     if args.scale == 0:
         args.scale = config['scale']
     set_FacT(vit, dim=args.dim, s=args.scale)
-
-    
     opt = None
     scheduler = None
     show_trinable_and_updateOpt(vit)
-    if opt == None:
-        print("error")
+    # if opt == None:
+    #     print("error")
     vit = rank_descend(args, vit, train_dl)
-    vit = train(args, vit, train_dl, opt, scheduler, epoch=20)[0]
+    vit = train(args, vit, train_dl, opt, scheduler, epoch=30)[0]
     print('acc1:', args.best_acc)
     print(f"optimal rank is {vit.dim}")
