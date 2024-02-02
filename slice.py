@@ -14,7 +14,7 @@ from argparse import ArgumentParser
 from vtab import *
 import yaml
 from slice import *
-def freeze_U_byRank(module):
+def prune_U_byRank(module):
     outDim, inDim = module.weight.shape
     # 获取梯度的绝对值
     weight = module.weight.transpose(0, 1)
@@ -40,7 +40,7 @@ def freeze_U_byRank(module):
     sliced_weight = sliced_weight.transpose(0, 1)
     return sliced_weight
 
-def freeze_V_byRank(module):
+def prune_V_byRank(module):
     inDim, outDim = module.weight.shape
     # 复制梯度，确保不修改原始梯度张量
     gradient_copy = module.weight.grad.clone().abs()
@@ -64,7 +64,7 @@ def freeze_V_byRank(module):
     return sliced_weight
 
 
-def freeze_qkv_byRank(module):
+def prune_qkv_byRank(module):
     dim = module.weight.shape[0]
     newDim = dim - 1
     sliced_weight = []
@@ -76,7 +76,7 @@ def freeze_qkv_byRank(module):
     sliced_weight_tensor = torch.stack(sliced_weight)
     return sliced_weight_tensor
 
-def freeze_fc_byRank(weight):
+def prune_fc_byRank(weight):
     inDim, outDim = weight.shape[0], weight.shape[1]
     newInDim = inDim - 1
     newOutDim = outDim - 4
@@ -100,43 +100,64 @@ def initialize_module_with_sliced_weight(module, sliced_weight):
     # 将新模型的状态字典加载到原始模型中
     module.load_state_dict(module.state_dict())
 
-def freeze_FacT(model):
+
+
+
+def trace_back_model(args, model):
+    loaded_trainable = torch.load('models/tt/' + args.dataset + '_bestrank.pt')
+            # 将加载的参数设置回模型中
+    for n, p in model.named_parameters():
+        if n in loaded_trainable:
+            p.data = loaded_trainable[n]
+
+def trace_back_FacT_setting(model):
     if type(model) == timm.models.vision_transformer.VisionTransformer:
-        U_sliced = freeze_U_byRank(model.FacTu)
+        model.dim = model.dim + 1 # rank减少了
+    for _ in model.children():
+        if type(_) == timm.models.vision_transformer.Attention:
+            _.dim += 1
+        elif type(_) == timm.models.layers.mlp.Mlp:
+            _.dim += 1
+        elif len(list(_.children())) != 0:
+            trace_back_FacT_setting(_)
+    
+def prune_FacT(model):
+    if type(model) == timm.models.vision_transformer.VisionTransformer:
+        U_sliced = prune_U_byRank(model.FacTu)
         model.FacTu = nn.Linear(U_sliced.shape[1], U_sliced.shape[0], bias=False)
         initialize_module_with_sliced_weight(model.FacTu, U_sliced)
-        V_sliced = freeze_V_byRank(model.FacTv)
+        V_sliced = prune_V_byRank(model.FacTv)
         model.Factv = nn.Linear(V_sliced.shape[0], V_sliced.shape[1], bias=False)
         initialize_module_with_sliced_weight(model.FacTv, V_sliced)
         model.dim = model.dim - 1 # rank减少了
     for _ in model.children():
         if type(_) == timm.models.vision_transformer.Attention:
-            q_sliced = freeze_qkv_byRank(_.q_FacTs)
+            q_sliced = prune_qkv_byRank(_.q_FacTs)
             _.q_FacTs = nn.Linear(q_sliced.shape[0], q_sliced.shape[1], bias=False)
             initialize_module_with_sliced_weight(_.q_FacTs, q_sliced)
-            k_sliced = freeze_qkv_byRank(_.k_FacTs)
+            k_sliced = prune_qkv_byRank(_.k_FacTs)
             _.k_FacTs = nn.Linear(k_sliced.shape[0], k_sliced.shape[1], bias=False)
             initialize_module_with_sliced_weight(_.k_FacTs, k_sliced)
-            v_sliced = freeze_qkv_byRank(_.v_FacTs)
+            v_sliced = prune_qkv_byRank(_.v_FacTs)
             _.v_FacTs = nn.Linear(v_sliced.shape[0], v_sliced.shape[1], bias=False)
             initialize_module_with_sliced_weight(_.v_FacTs, v_sliced)
-            proj_sliced = freeze_qkv_byRank(_.proj_FacTs)
+            proj_sliced = prune_qkv_byRank(_.proj_FacTs)
             _.proj_FacTs = nn.Linear(proj_sliced.shape[0], proj_sliced.shape[1], bias=False)
             initialize_module_with_sliced_weight(_.proj_FacTs, proj_sliced)
             _.dim -= 1
         elif type(_) == timm.models.layers.mlp.Mlp:
             # 这里转置一下
-            fc1_sliced = freeze_fc_byRank(_.fc1_FacTs.weight.transpose(0, 1))
+            fc1_sliced = prune_fc_byRank(_.fc1_FacTs.weight.transpose(0, 1))
             # print(f"fc1 {fc1_sliced.shape}")
             _.fc1_FacTs = nn.Linear(fc1_sliced.shape[0], fc1_sliced.shape[1], bias=False)
             initialize_module_with_sliced_weight(_.fc1_FacTs, fc1_sliced.transpose(0, 1))
-            fc2_sliced = freeze_fc_byRank(_.fc2_FacTs.weight)
+            fc2_sliced = prune_fc_byRank(_.fc2_FacTs.weight)
             # print(f"fc2 {fc1_sliced.shape}")
             _.fc2_FacTs = nn.Linear(fc2_sliced.shape[1], fc2_sliced.shape[0], bias=False)
             initialize_module_with_sliced_weight(_.fc2_FacTs, fc2_sliced)
             _.dim -= 1
         elif len(list(_.children())) != 0:
-            freeze_FacT(_)
+            prune_FacT(_)
 
 def showDim(model):
     if type(model) == timm.models.vision_transformer.VisionTransformer:
