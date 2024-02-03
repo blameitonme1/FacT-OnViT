@@ -108,14 +108,14 @@ def trace_back_model(args, model):
             # 将加载的参数设置回模型中
     for n, p in model.named_parameters():
         if n in loaded_trainable:
-            print(f"{n}:")
-            print(p.shape)
+            # print(f"{n}:")
             p.data = loaded_trainable[n]
+            # print(p.shape)
     
 
 def trace_back_FacT_setting(model):
     if type(model) == timm.models.vision_transformer.VisionTransformer:
-        model.dim = model.dim + 1 # rank减少了
+        model.dim = model.dim + 1 #回溯
     for _ in model.children():
         if type(_) == timm.models.vision_transformer.Attention:
             _.dim += 1
@@ -166,14 +166,17 @@ def showDim(model):
     if type(model) == timm.models.vision_transformer.VisionTransformer:
         print(f"U shape {model.FacTu.weight.shape}")
         print(f"V shape {model.FacTv.weight.shape}")
+        print(f"dim is {model.dim}")
     for _ in model.children():
         if type(_) == timm.models.vision_transformer.Attention:
             print(f"q shape {_.q_FacTs.weight.shape}")
             print(f"k shape {_.k_FacTs.weight.shape}")
             print(f"v shape {_.v_FacTs.weight.shape}")
             print(f"proj shape {_.proj_FacTs.weight.shape}")
+            print(f"attention dim is {_.dim}")
         elif type(_) == timm.models.layers.mlp.Mlp:
             print(f"fc1 shape {_.fc1_FacTs.weight.shape}")
             print(f"fc2 shape {_.fc2_FacTs.weight.shape}")
+            print(f"ffn dim is {_.dim}")
         elif len(list(_.children())) != 0:
             showDim(_)

@@ -14,6 +14,7 @@ from argparse import ArgumentParser
 from vtab import *
 import yaml
 from slice import *
+from fastdebug.error.torch import layer_error
 
 def backward_hook(module, grad_input, grad_output):
     # print(f"Gradient for module {module.__class__.__name__}: ", grad_input)
@@ -24,41 +25,51 @@ def rank_descend(args, model, dl):
     global opt
     global scheduler
     model, best_acc = train(args, model, dl, opt, scheduler, epoch=10)
-    save_model_during_rankdescend(model)
+    save_model_during_rankdescend(model, best_acc)
     cur_acc = best_acc
+    rank = model.dim # 记录rank
     while True:
         prune_FacT(model)
+        rank -= 1
         show_trinable_and_updateOpt(model)
         model = model.cuda()
+        # print(f"acc remained when cut rank is {test(model, test_dl)[1]}")
         model, cur_acc = train(args, model, dl, opt, scheduler, epoch=10)
         print(f"cur_acc is {cur_acc}, best_acc = {best_acc}")
         if cur_acc > best_acc:
             best_acc = cur_acc
-            save_model_during_rankdescend(model)
+            save_model_during_rankdescend(model, best_acc)
         else:
             # 减少了rank训练还是不能回复正确率，说明rank已经到了最佳值了
             # 加载保存的模型参数
+            model = create_model(args.model, checkpoint_path='./ViT-B_16.npz', drop_path_rate=0.1)
+            set_FacT(model, rank)
             trace_back_model(args, model)
             trace_back_FacT_setting(model)
+            show_trinable_and_updateOpt(model) # 之前好像还没有更新呢
             break
     return model
 
-def save_model_during_rankdescend(model):
+def save_model_during_rankdescend(model, best_acc):
     """ 降低rank的时候储存目前最合适的模型 """
     model.eval()
     model = model.cpu()
     trainable = {}
-    for n, p in vit.named_parameters():
+    for n, p in model.named_parameters():
         if 'FacT' in n or 'head' in n:
             trainable[n] = p.data
     # trainable['rank'] = rank
     torch.save(trainable, 'models/tt/' + args.dataset + '_bestrank.pt')
+    with open('models/tt/' + args.dataset + '_bestrank.log', 'w') as f:
+        f.write(str(best_acc) + ' rank is ' + str(model.dim))
 
 def show_trinable_and_updateOpt(model):
     global opt
     global scheduler
+    global name
     trainable = []
     total_param = 0
+    model.reset_classifier(get_classes_num(name))
     for n, p in model.named_parameters():
         if 'FacT' in n or 'head' in n:
             trainable.append(p)
@@ -72,10 +83,10 @@ def show_trinable_and_updateOpt(model):
     scheduler = CosineLRScheduler(opt, t_initial=100,
                                   warmup_t=10, lr_min=1e-5, warmup_lr_init=1e-6, decay_rate=0.1)
 
-def train(args, model, dl, opt, scheduler, epoch):
+def train(args, model, dl, opt, scheduler, epoch, printDim=False):
     args.best_acc = 0
-    model = model.cuda()
     model.train()
+    model = model.cuda()
     pbar = tqdm(range(epoch))
     for ep in pbar:
         model.train()
@@ -84,6 +95,8 @@ def train(args, model, dl, opt, scheduler, epoch):
         for i, batch in enumerate(dl):
             x, y = batch[0].cuda(), batch[1].cuda()
             out = model(x)
+            if printDim:
+                print(out.shape, y.shape)
             loss = F.cross_entropy(out, y)
             opt.zero_grad()
             loss.backward()
@@ -257,7 +270,7 @@ if __name__ == '__main__':
     # if opt == None:
     #     print("error")
     vit = rank_descend(args, vit, train_dl)
-    show_trinable_and_updateOpt(vit)
+    # showDim(vit)
     vit = train(args, vit, train_dl, opt, scheduler, epoch=30)[0]
     print('acc1:', args.best_acc)
     print(f"optimal rank is {vit.dim}")
