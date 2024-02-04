@@ -162,6 +162,34 @@ def prune_FacT(model):
         elif len(list(_.children())) != 0:
             prune_FacT(_)
 
+def calculate_taylor(parameter):
+    if not parameter.requires_grad:
+        return 0
+    if parameter.grad is not None:
+        taylor = parameter * parameter.grad
+        return taylor.mean()
+    else:
+        return 0
+
+def calculate_freeze_candidate(model, num):
+    taylors = {}
+    freeze_candidate = None
+    for n, p in model.named_parameters():
+        if 'FacT' in n:
+            taylors[n] = calculate_taylor(p)
+    # 按照值进行排序
+    sorted_dict_by_value = dict(sorted(taylors.items(), key=lambda item: item[1]))
+    freeze_candidate = list(sorted_dict_by_value.keys())[:num]
+    return freeze_candidate
+
+def freeze_FacT_by_oneweight(model):
+    freeze_candidate = calculate_freeze_candidate(model, num=4)
+    for n, p in model.named_parameters():
+        if n in freeze_candidate:
+            # 冻结该参数
+            p.requires_grad = False
+    return model
+
 def showDim(model):
     if type(model) == timm.models.vision_transformer.VisionTransformer:
         print(f"U shape {model.FacTu.weight.shape}")

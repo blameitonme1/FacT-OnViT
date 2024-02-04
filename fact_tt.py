@@ -69,11 +69,10 @@ def show_trinable_and_updateOpt(model):
     global name
     trainable = []
     total_param = 0
-    model.reset_classifier(get_classes_num(name))
     for n, p in model.named_parameters():
         if 'FacT' in n or 'head' in n:
             trainable.append(p)
-            if 'head' not in n:
+            if 'head' not in n and p.requires_grad:
                 # print(f"1 name {n}, num {p.numel()}")
                 total_param += p.numel()
         else:
@@ -84,7 +83,7 @@ def show_trinable_and_updateOpt(model):
                                   warmup_t=10, lr_min=1e-5, warmup_lr_init=1e-6, decay_rate=0.1)
 
 def train(args, model, dl, opt, scheduler, epoch, printDim=False):
-    args.best_acc = 0
+    # args.best_acc = 0
     model.train()
     model = model.cuda()
     pbar = tqdm(range(epoch))
@@ -257,6 +256,7 @@ if __name__ == '__main__':
     name = args.dataset
     args.best_acc = 0
     vit = create_model(args.model, checkpoint_path='./ViT-B_16.npz', drop_path_rate=0.1)
+    vit.reset_classifier(get_classes_num(name))
     train_dl, test_dl = get_data(name)
     config = get_config(name)
     if args.dim == 0:
@@ -269,8 +269,16 @@ if __name__ == '__main__':
     show_trinable_and_updateOpt(vit)
     # if opt == None:
     #     print("error")
-    vit = rank_descend(args, vit, train_dl)
+    # vit = rank_descend(args, vit, train_dl)
+    vit, cur_acc = train(args, vit, train_dl, opt, scheduler, epoch=10)
+    print(f"cur acc is {cur_acc}")
+    for i in range(10):
+        freeze_FacT_by_oneweight(vit)
+        show_trinable_and_updateOpt(vit)
+        vit, cur_acc = train(args, vit, train_dl, opt, scheduler, epoch=10)
+        print(f"cur acc is {cur_acc}")
     # showDim(vit)
-    vit = train(args, vit, train_dl, opt, scheduler, epoch=30)[0]
+    # print(f"trace back acc is {test(vit, test_dl)[1]}")
+    vit = train(args, vit, train_dl, opt, scheduler, epoch=10)[0]
     print('acc1:', args.best_acc)
     print(f"optimal rank is {vit.dim}")
