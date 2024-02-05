@@ -169,18 +169,34 @@ def calculate_taylor(parameter):
         taylor = parameter * parameter.grad
         return taylor.mean()
     else:
+        print("error when grad is None")
         return 0
 
 def calculate_freeze_candidate(model, num):
     taylors = {}
     freeze_candidate = None
     for n, p in model.named_parameters():
-        if 'FacT' in n:
+        # 选择范围是从trainable里面
+        if 'FacT' in n and p.requires_grad and 'u' not in n and 'v' not in n:
             taylors[n] = calculate_taylor(p)
     # 按照值进行排序
     sorted_dict_by_value = dict(sorted(taylors.items(), key=lambda item: item[1]))
     freeze_candidate = list(sorted_dict_by_value.keys())[:num]
     return freeze_candidate
+
+def randomly_freeze_FacT(model, num):
+    # 获取模型中包含 'FacT' 的参数列表
+    fact_parameters = {n: p for n, p in model.named_parameters() if 'FacT' in n and p.requires_grad}
+    # 确保选择的参数个数不超过实际存在的 'FacT' 参数个数
+    num = min(num, len(fact_parameters))
+    # 从 'FacT' 参数列表中随机选择 num 个参数
+    freeze_candidate_names = random.sample(fact_parameters.keys(), num)
+    # 冻结选定的参数
+    for name in freeze_candidate_names:
+        param = fact_parameters[name]
+        param.requires_grad = False
+    return freeze_candidate_names
+
 
 def freeze_FacT_by_oneweight(model):
     freeze_candidate = calculate_freeze_candidate(model, num=4)
@@ -189,6 +205,7 @@ def freeze_FacT_by_oneweight(model):
             # 冻结该参数
             p.requires_grad = False
     return model
+
 
 def showDim(model):
     if type(model) == timm.models.vision_transformer.VisionTransformer:
