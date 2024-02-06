@@ -16,39 +16,7 @@ import yaml
 from slice import *
 from fastdebug.error.torch import layer_error
 
-def backward_hook(module, grad_input, grad_output):
-    # print(f"Gradient for module {module.__class__.__name__}: ", grad_input)
-    total_params = sum(p.numel() for p in module.parameters())
 
-def rank_descend(args, model, dl):
-    # 逐步降低rank
-    global opt
-    global scheduler
-    model, best_acc = train(args, model, dl, opt, scheduler, epoch=10)
-    save_model_during_rankdescend(model, best_acc)
-    cur_acc = best_acc
-    rank = model.dim # 记录rank
-    while True:
-        prune_FacT(model)
-        rank -= 1
-        show_trinable_and_updateOpt(model)
-        model = model.cuda()
-        # print(f"acc remained when cut rank is {test(model, test_dl)[1]}")
-        model, cur_acc = train(args, model, dl, opt, scheduler, epoch=10)
-        print(f"cur_acc is {cur_acc}, best_acc = {best_acc}")
-        if cur_acc > best_acc:
-            best_acc = cur_acc
-            save_model_during_rankdescend(model, best_acc)
-        else:
-            # 减少了rank训练还是不能回复正确率，说明rank已经到了最佳值了
-            # 加载保存的模型参数
-            model = create_model(args.model, checkpoint_path='./ViT-B_16.npz', drop_path_rate=0.1)
-            set_FacT(model, rank)
-            trace_back_model(args, model)
-            trace_back_FacT_setting(model)
-            show_trinable_and_updateOpt(model) # 之前好像还没有更新呢
-            break
-    return model
 
 def save_model_during_rankdescend(model, best_acc):
     """ 降低rank的时候储存目前最合适的模型 """
@@ -63,24 +31,19 @@ def save_model_during_rankdescend(model, best_acc):
     with open('models/tt/' + args.dataset + '_bestrank.log', 'w') as f:
         f.write(str(best_acc) + ' rank is ' + str(model.dim))
 
-def show_trinable_and_updateOpt(model):
-    global opt
-    global scheduler
-    global name
-    trainable = []
-    total_param = 0
-    for n, p in model.named_parameters():
-        if 'FacT' in n or 'head' in n:
-            trainable.append(p)
-            if 'head' not in n and p.requires_grad:
-                # print(f"1 name {n}, num {p.numel()}")
-                total_param += p.numel()
-        else:
-            p.requires_grad = False
-    print(f"total_param is {total_param}, rank is {model.dim} now")
-    opt = AdamW(trainable, lr=args.lr, weight_decay=args.wd)
-    scheduler = CosineLRScheduler(opt, t_initial=100,
-                                  warmup_t=10, lr_min=1e-5, warmup_lr_init=1e-6, decay_rate=0.1)
+# def get_trinable():
+#     global trainable
+#     trainable = []
+#     total_param = 0
+#     for n, p in vit.named_parameters():
+#         if 'FacT' in n or 'head' in n and (p.requires_grad is True):
+#             trainable.append(p)
+#             if 'head' not in n and (p.requires_grad is True):
+#                 # print(f"1 name {n}, num {p.numel()}")
+#                 total_param += p.numel()
+#         else:
+#             p.requires_grad = False
+#     print(f"total_param is {total_param}, rank is {vit.dim} now")
 
 def train(args, model, dl, opt, scheduler, epoch, printDim=False):
     # args.best_acc = 0
@@ -256,7 +219,6 @@ if __name__ == '__main__':
     name = args.dataset
     args.best_acc = 0
     vit = create_model(args.model, checkpoint_path='./ViT-B_16.npz', drop_path_rate=0.1)
-    vit.reset_classifier(get_classes_num(name))
     train_dl, test_dl = get_data(name)
     config = get_config(name)
     if args.dim == 0:
@@ -264,17 +226,44 @@ if __name__ == '__main__':
     if args.scale == 0:
         args.scale = config['scale']
     set_FacT(vit, dim=args.dim, s=args.scale)
-    opt = None
-    scheduler = None
-    show_trinable_and_updateOpt(vit)
+    trainable = []
+    vit.reset_classifier(get_classes_num(name))
+    total_param = 0
+    for n, p in vit.named_parameters():
+        if ('FacT' in n or 'head' in n) and (p.requires_grad is True):
+            trainable.append(p)
+            if 'head' not in n and (p.requires_grad is True):
+                # print(f"1 name {n}, num {p.numel()}")
+                total_param += p.numel()
+        else:
+            p.requires_grad = False
+    print(f"total_param is {total_param}, rank is {vit.dim} now")
+    opt = AdamW(trainable, lr=args.lr, weight_decay=args.wd)
+    scheduler = CosineLRScheduler(opt, t_initial=100,
+                                  warmup_t=10, lr_min=1e-5, warmup_lr_init=1e-6, decay_rate=0.1)
     # if opt == None:
     #     print("error")
     # vit = rank_descend(args, vit, train_dl)
-    vit, cur_acc = train(args, vit, train_dl, opt, scheduler, epoch=10)
+    vit, cur_acc = train(args, vit, train_dl, opt, scheduler, epoch=20)
     print(f"cur acc is {cur_acc}")
     for i in range(10):
-        freeze_FacT_by_oneweight(vit)
-        show_trinable_and_updateOpt(vit)
+        vit = freeze_FacT(vit)
+        # 重新统计此时参数数量
+        trainable = []
+        total_param = 0
+        for n, p in vit.named_parameters():
+            if ('FacT' in n or 'head' in n) and (p.requires_grad is True):
+                trainable.append(p)
+                if 'head' not in n and (p.requires_grad is True):
+                    # print(f"1 name {n}, num {p.numel()}")
+                    total_param += p.numel()
+            else:
+                p.requires_grad = False
+        print(f"total_param is {total_param}, rank is {vit.dim} now")
+        # opt = AdamW(trainable, lr=args.lr, weight_decay=args.wd)
+        # scheduler = CosineLRScheduler(opt, t_initial=100,
+        #                           warmup_t=10, lr_min=1e-5, warmup_lr_init=1e-6, decay_rate=0.1)
+    
         vit, cur_acc = train(args, vit, train_dl, opt, scheduler, epoch=10)
         print(f"cur acc is {cur_acc}")
     # showDim(vit)
