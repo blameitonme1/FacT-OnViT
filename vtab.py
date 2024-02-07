@@ -84,23 +84,23 @@ def get_data(name, evaluate=True, batch_size=64):
             ImageFilelist(root=root, flist=root + "/train800val200.txt",
                           transform=transform),
             batch_size=batch_size, shuffle=True, drop_last=True,
-            num_workers=4, pin_memory=True)
+            num_workers=1, pin_memory=True)
 
         val_loader = torch.utils.data.DataLoader(
             ImageFilelist(root=root, flist=root + "/test.txt",
                           transform=transform),
-            batch_size=256, shuffle=False,
-            num_workers=4, pin_memory=True)
+            batch_size=batch_size, shuffle=False,
+            num_workers=1, pin_memory=True)
     else:
         train_loader = torch.utils.data.DataLoader(
             ImageFilelist(root=root, flist=root + "/train800.txt",
                           transform=transform),
             batch_size=batch_size, shuffle=True, drop_last=True,
-            num_workers=4, pin_memory=True)
+            num_workers=1, pin_memory=True)
 
         val_loader = torch.utils.data.DataLoader(
             ImageFilelist(root=root, flist=root + "/val200.txt",
                           transform=transform),
-            batch_size=256, shuffle=False,
-            num_workers=4, pin_memory=True)
+            batch_size=batch_size, shuffle=False,
+            num_workers=1, pin_memory=True)
     return train_loader, val_loader
