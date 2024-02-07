@@ -164,6 +164,7 @@ def prune_FacT(model):
 
 def calculate_taylor(parameter):
     if not parameter.requires_grad:
+        print("error when grad is None")
         return 0
     if parameter.grad is not None:
         taylor = parameter * parameter.grad
@@ -177,7 +178,7 @@ def calculate_freeze_candidate(model, num):
     freeze_candidate = None
     for n, p in model.named_parameters():
         # 选择范围是从trainable里面
-        if 'FacT' in n and p.requires_grad and 'u' not in n and 'v' not in n:
+        if 'FacT' in n and p.requires_grad:
             taylors[n] = calculate_taylor(p)
     # 按照值进行排序
     sorted_dict_by_value = dict(sorted(taylors.items(), key=lambda item: item[1]))
@@ -198,8 +199,9 @@ def randomly_freeze_FacT(model, num):
     return freeze_candidate_names
 
 
-def freeze_FacT_by_oneweight(model):
+def freeze_FacT(model):
     freeze_candidate = calculate_freeze_candidate(model, num=4)
+    print(len(freeze_candidate))
     for n, p in model.named_parameters():
         if n in freeze_candidate:
             # 冻结该参数

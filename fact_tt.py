@@ -14,7 +14,6 @@ from argparse import ArgumentParser
 from vtab import *
 import yaml
 from slice import *
-from fastdebug.error.torch import layer_error
 
 
 
