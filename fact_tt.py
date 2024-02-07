@@ -229,7 +229,7 @@ if __name__ == '__main__':
     vit.reset_classifier(get_classes_num(name))
     total_param = 0
     for n, p in vit.named_parameters():
-        if ('FacT' in n or 'head' in n) and (p.requires_grad is True):
+        if ('FacT' in n or 'head' in n) and (p.requires_grad is True) and ('FacTu' not in n):
             trainable.append(p)
             if 'head' not in n and (p.requires_grad is True):
                 # print(f"1 name {n}, num {p.numel()}")
@@ -245,28 +245,28 @@ if __name__ == '__main__':
     # vit = rank_descend(args, vit, train_dl)
     vit, cur_acc = train(args, vit, train_dl, opt, scheduler, epoch=20)
     print(f"cur acc is {cur_acc}")
-    for i in range(10):
-        vit = freeze_FacT(vit)
-        # 重新统计此时参数数量
-        trainable = []
-        total_param = 0
-        for n, p in vit.named_parameters():
-            if ('FacT' in n or 'head' in n) and (p.requires_grad is True):
-                trainable.append(p)
-                if 'head' not in n and (p.requires_grad is True):
-                    # print(f"1 name {n}, num {p.numel()}")
-                    total_param += p.numel()
-            else:
-                p.requires_grad = False
-        print(f"total_param is {total_param}, rank is {vit.dim} now")
-        # opt = AdamW(trainable, lr=args.lr, weight_decay=args.wd)
-        # scheduler = CosineLRScheduler(opt, t_initial=100,
-        #                           warmup_t=10, lr_min=1e-5, warmup_lr_init=1e-6, decay_rate=0.1)
+    # for i in range(10):
+    #     vit = freeze_FacT(vit)
+    #     # 重新统计此时参数数量
+    #     trainable = []
+    #     total_param = 0
+    #     for n, p in vit.named_parameters():
+    #         if ('FacT' in n or 'head' in n) and (p.requires_grad is True) and ('FacTu' not in n):
+    #             trainable.append(p)
+    #             if 'head' not in n and (p.requires_grad is True):
+    #                 # print(f"1 name {n}, num {p.numel()}")
+    #                 total_param += p.numel()
+    #         else:
+    #             p.requires_grad = False
+    #     print(f"total_param is {total_param}, rank is {vit.dim} now")
+    #     # opt = AdamW(trainable, lr=args.lr, weight_decay=args.wd)
+    #     # scheduler = CosineLRScheduler(opt, t_initial=100,
+    #     #                           warmup_t=10, lr_min=1e-5, warmup_lr_init=1e-6, decay_rate=0.1)
     
-        vit, cur_acc = train(args, vit, train_dl, opt, scheduler, epoch=10)
-        print(f"cur acc is {cur_acc}")
-    # showDim(vit)
-    # print(f"trace back acc is {test(vit, test_dl)[1]}")
-    vit = train(args, vit, train_dl, opt, scheduler, epoch=10)[0]
+    #     vit, cur_acc = train(args, vit, train_dl, opt, scheduler, epoch=10)
+    #     print(f"cur acc is {cur_acc}")
+    # # showDim(vit)
+    # # print(f"trace back acc is {test(vit, test_dl)[1]}")
+    # vit = train(args, vit, train_dl, opt, scheduler, epoch=10)[0]
     print('acc1:', args.best_acc)
     print(f"optimal rank is {vit.dim}")
