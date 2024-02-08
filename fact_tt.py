@@ -64,9 +64,9 @@ def lora_forward_attn_full(self, x):
     """ LoRA设置q, k, v, o的时候的forward函数 """
     B, N, C = x.shape
     qkv = self.qkv(x)
-    q = vit.q_LoRA(x)
-    k = vit.k_LoRA(x)
-    v = vit.v_LoRA(x)
+    q = self.q_LoRA(x)
+    k = self.k_LoRA(x)
+    v = self.v_LoRA(x)
     qkv += torch.cat([q, k, v], dim=2)
     qkv = qkv.reshape(B, N, 3,
                       self.num_heads,
@@ -79,7 +79,7 @@ def lora_forward_attn_full(self, x):
 
     x = (attn @ v).transpose(1, 2).reshape(B, N, C)
     proj = self.proj(x)
-    proj += vit.proj_LoRA(x)
+    proj += self.proj_LoRA(x)
     x = self.proj_drop(proj)
     return x
 
@@ -258,7 +258,7 @@ def save(args, model, acc, ep):
             trainable[n] = p.data
     torch.save(trainable, 'models/tt/' + args.dataset + '.pt')
     with open('models/tt/' + args.dataset + '.log', 'w') as f:
-        f.write(str(ep) + ' ' + str(acc) + ' ' + str(model.dim))
+        f.write(str(ep) + ' ' + str(acc))
 
 
 if __name__ == '__main__':
@@ -279,8 +279,7 @@ if __name__ == '__main__':
     args.best_acc = 0
     vit = create_model(args.model, checkpoint_path='./ViT-B_16.npz', drop_path_rate=0.1)
     model_dim = vit.embed_dim
-    train_dl = None
-    test_dl = None
+    train_dl, test_dl = get_data(name)
     config = get_config(name)
     if args.dim == 0:
         args.dim = config['rank']
@@ -295,8 +294,8 @@ if __name__ == '__main__':
         if ('lora' in n or 'head' in n) and (p.requires_grad is True):
             trainable.append(p)
             if 'head' not in n and (p.requires_grad is True):
-                print(f" name {n}, num {p.numel()}")
-                print(f"name {n} shape {p.shape}")
+                # print(f" name {n}, num {p.numel()}")
+                # print(f"name {n} shape {p.shape}")
                 total_param += p.numel()
         else:
             p.requires_grad = False
