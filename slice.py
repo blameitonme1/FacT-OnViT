@@ -26,12 +26,24 @@ def calculate_taylor(parameter):
         print("error when grad is None")
         return 0
 
-def calculate_freeze_candidate(model, num):
+def calculate_freeze_candidate_FacT(model, num):
     taylors = {}
     freeze_candidate = None
     for n, p in model.named_parameters():
         # 选择范围是从trainable里面
         if 'FacT' in n and p.requires_grad is True and 'FacTu' not in n:
+            taylors[n] = calculate_taylor(p)
+    # 按照值进行排序
+    sorted_dict_by_value = dict(sorted(taylors.items(), key=lambda item: item[1]))
+    freeze_candidate = list(sorted_dict_by_value.keys())[:num]
+    return freeze_candidate
+
+def calculate_freeze_candidate_LoRA(model, num):
+    taylors = {}
+    freeze_candidate = None
+    for n, p in model.named_parameters():
+        # 选择范围是从trainable里面
+        if 'LoRA' in n and p.requires_grad is True:
             taylors[n] = calculate_taylor(p)
     # 按照值进行排序
     sorted_dict_by_value = dict(sorted(taylors.items(), key=lambda item: item[1]))
@@ -53,7 +65,7 @@ def randomly_freeze_FacT(model, num):
 
 
 def freeze_FacT(model):
-    freeze_candidate = calculate_freeze_candidate(model, num=4)
+    freeze_candidate = calculate_freeze_candidate_FacT(model, num=4)
     print(len(freeze_candidate))
     for n, p in model.named_parameters():
         if n in freeze_candidate:
@@ -61,8 +73,16 @@ def freeze_FacT(model):
             p.requires_grad = False
     return model
 
+def freeze_LoRA(model):
+    freeze_candidate = calculate_freeze_candidate_LoRA(model, num=4)
+    print(len(freeze_candidate))
+    for n, p in model.named_parameters():
+        if n in freeze_candidate:
+            # 冻结该参数
+            p.requires_grad = False
+    return model
 
-def showDim(model):
+def showDim_FacT(model):
     if type(model) == timm.models.vision_transformer.VisionTransformer:
         print(f"U shape {model.FacTu.weight.shape}")
         print(f"V shape {model.FacTv.weight.shape}")
@@ -79,4 +99,4 @@ def showDim(model):
             print(f"fc2 shape {_.fc2_FacTs.weight.shape}")
             print(f"ffn dim is {_.dim}")
         elif len(list(_.children())) != 0:
-            showDim(_)
+            showDim_FacT(_)

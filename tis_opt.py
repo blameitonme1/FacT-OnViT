@@ -44,7 +44,7 @@ def train(args, model, dl, opt, scheduler, epoch, printDim=False):
             pbar.set_description(str(acc) + '|' + str(args.best_acc))
 
     model = model.cpu()
-    return model, args.best_acc
+    return model, acc
 
 @torch.no_grad()
 def test(model, dl):
@@ -286,7 +286,7 @@ if __name__ == '__main__':
     if args.scale == 0:
         args.scale = config['scale']
     # set_FacT(vit, dim=args.dim, s=args.scale)
-    set_LoRA_full(vit, dim=args.dim, s=args.scale)
+    set_LoRA_full(vit, dim=args.dim, s=args.scale) # 两个方法选择一个
     trainable = []
     vit.reset_classifier(get_classes_num(name))
     total_param = 0
@@ -306,30 +306,41 @@ if __name__ == '__main__':
     # if opt == None:
     #     print("error")
     # vit = rank_descend(args, vit, train_dl)
-    vit, cur_acc = train(args, vit, train_dl, opt, scheduler, epoch=100)
+    vit, cur_acc = train(args, vit, train_dl, opt, scheduler, epoch=20)
     print(f"cur acc is {cur_acc}")
-    # for i in range(10):
-    #     vit = freeze_FacT(vit)
-    #     # 重新统计此时参数数量
-    #     trainable = []
-    #     total_param = 0
-    #     for n, p in vit.named_parameters():
-    #         if ('FacT' in n or 'head' in n) and (p.requires_grad is True) and ('FacTu' not in n):
-    #             trainable.append(p)
-    #             if 'head' not in n and (p.requires_grad is True):
-    #                 # print(f"1 name {n}, num {p.numel()}")
-    #                 total_param += p.numel()
-    #         else:
-    #             p.requires_grad = False
-    #     print(f"total_param is {total_param}, rank is {vit.dim} now")
-    #     # opt = AdamW(trainable, lr=args.lr, weight_decay=args.wd)
-    #     # scheduler = CosineLRScheduler(opt, t_initial=100,
-    #     #                           warmup_t=10, lr_min=1e-5, warmup_lr_init=1e-6, decay_rate=0.1)
-    
-    #     vit, cur_acc = train(args, vit, train_dl, opt, scheduler, epoch=10)
-    #     print(f"cur acc is {cur_acc}")
-    # # showDim(vit)
-    # # print(f"trace back acc is {test(vit, test_dl)[1]}")
-    # vit = train(args, vit, train_dl, opt, scheduler, epoch=10)[0]
+    best_acc = args.best_acc # 记录出现的最高精度
+
+    while True:
+        vit = freeze_LoRA(vit)
+        # 重新统计此时参数数量
+        trainable = []
+        total_param = 0
+        for n, p in vit.named_parameters():
+            if ('LoRA' in n) and (p.requires_grad is True):
+                trainable.append(p)
+                if 'head' not in n and (p.requires_grad is True):
+                    # print(f"1 name {n}, num {p.numel()}")
+                    total_param += p.numel()
+            else:
+                p.requires_grad = False
+        print(f"total_param is {total_param}, rank is {vit.dim} now")
+        # opt = AdamW(trainable, lr=args.lr, weight_decay=args.wd)
+        # scheduler = CosineLRScheduler(opt, t_initial=100,
+        #                           warmup_t=10, lr_min=1e-5, warmup_lr_init=1e-6, decay_rate=0.1)
+        vit, cur_acc = train(args, vit, train_dl, opt, scheduler, epoch=10) # 先训练10个epoch先
+        past_acc = cur_acc
+        while past_acc <= cur_acc:
+            # acc保持上升的时候
+            vit, cur_acc = train(args, vit, train_dl, opt, scheduler, epoch=10)
+        # 此时past_acc就是没有过拟合时候最高的精度
+        print(f"bset acc during this epoch is {past_acc}")
+        # 查看最高acc是否增加，不增加退出循环
+        if past_acc >= best_acc:
+            best_acc = past_acc
+        else:
+            break
+    # showDim(vit)
+    # print(f"trace back acc is {test(vit, test_dl)[1]}")
+    vit = train(args, vit, train_dl, opt, scheduler, epoch=10)[0]
     print('acc1:', args.best_acc)
     print(f"optimal rank is {vit.dim}")
