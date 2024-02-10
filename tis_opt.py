@@ -306,7 +306,7 @@ if __name__ == '__main__':
     # if opt == None:
     #     print("error")
     # vit = rank_descend(args, vit, train_dl)
-    vit, cur_acc = train(args, vit, train_dl, opt, scheduler, epoch=20)
+    vit, cur_acc = train(args, vit, train_dl, opt, scheduler, epoch=40)
     print(f"cur acc is {cur_acc}")
     best_acc = args.best_acc # 记录出现的最高精度
 
@@ -323,22 +323,28 @@ if __name__ == '__main__':
                     total_param += p.numel()
             else:
                 p.requires_grad = False
-        print(f"total_param is {total_param}, rank is {vit.dim} now")
+        print(f"total_param is {total_param}")
         # opt = AdamW(trainable, lr=args.lr, weight_decay=args.wd)
         # scheduler = CosineLRScheduler(opt, t_initial=100,
         #                           warmup_t=10, lr_min=1e-5, warmup_lr_init=1e-6, decay_rate=0.1)
         vit, cur_acc = train(args, vit, train_dl, opt, scheduler, epoch=10) # 先训练10个epoch先
-        past_acc = cur_acc
-        while past_acc <= cur_acc:
-            # acc保持上升的时候
+        for i in range(10):
             vit, cur_acc = train(args, vit, train_dl, opt, scheduler, epoch=10)
-        # 此时past_acc就是没有过拟合时候最高的精度
-        print(f"bset acc during this epoch is {past_acc}")
-        # 查看最高acc是否增加，不增加退出循环
-        if past_acc >= best_acc:
-            best_acc = past_acc
-        else:
-            break
+        # past_acc = cur_acc
+        # while past_acc <= cur_acc:
+        #     # acc保持上升的时候
+        #     vit, cur_acc = train(args, vit, train_dl, opt, scheduler, epoch=30)
+        #     if past_acc > cur_acc:
+        #         break
+        #     else:
+        #         past_acc = cur_acc
+        # # 此时past_acc就是没有过拟合时候最高的精度
+        # print(f"bset acc during this epoch is {past_acc}")
+        # # 查看最高acc是否增加，不增加退出循环
+        # if past_acc >= best_acc:
+        #     best_acc = past_acc
+        # else:
+        #     break
     # showDim(vit)
     # print(f"trace back acc is {test(vit, test_dl)[1]}")
     vit = train(args, vit, train_dl, opt, scheduler, epoch=10)[0]
