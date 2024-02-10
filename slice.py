@@ -43,11 +43,12 @@ def calculate_freeze_candidate_LoRA(model, num):
     freeze_candidate = None
     for n, p in model.named_parameters():
         # 选择范围是从trainable里面
-        if ('q_LoRA' in n or 'v_LoRA' in n) and p.requires_grad is True:
+        if ('LoRA' in n) and p.requires_grad is True:
             taylors[n] = calculate_taylor(p)
     # 按照值进行排序
     sorted_dict_by_value = dict(sorted(taylors.items(), key=lambda item: item[1]))
     freeze_candidate = list(sorted_dict_by_value.keys())[:num]
+    # print(sorted_dict_by_value)
     return freeze_candidate
 
 def randomly_freeze_FacT(model, num):

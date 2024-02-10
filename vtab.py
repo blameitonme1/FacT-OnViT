@@ -73,7 +73,7 @@ class ImageFilelist(data.Dataset):
         return len(self.imlist)
 
 
-def get_data(name, evaluate=True, batch_size=64):
+def get_data(name, evaluate=True, batch_size=128):
     root = '../vtab-1k/' + name
     transform = transforms.Compose([
         transforms.Resize((224, 224), interpolation=3),
