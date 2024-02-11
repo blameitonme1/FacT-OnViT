@@ -306,12 +306,12 @@ if __name__ == '__main__':
     # if opt == None:
     #     print("error")
     # vit = rank_descend(args, vit, train_dl)
-    vit, cur_acc = train(args, vit, train_dl, opt, scheduler, epoch=50)
+    vit, cur_acc = train(args, vit, train_dl, opt, scheduler, epoch=100)
     print(f"cur acc is {cur_acc}")
     best_acc = args.best_acc # 记录出现的最高精度
     # for i in range(10):
     #         vit, cur_acc = train(args, vit, train_dl, opt, scheduler, epoch=10)
-    while True:
+    while True and total_param > 0:
         vit = freeze_LoRA(vit)
         # 重新统计此时参数数量
         trainable = []
@@ -328,7 +328,7 @@ if __name__ == '__main__':
         # opt = AdamW(trainable, lr=args.lr, weight_decay=args.wd)
         # scheduler = CosineLRScheduler(opt, t_initial=100,
         #                           warmup_t=10, lr_min=1e-5, warmup_lr_init=1e-6, decay_rate=0.1)
-        vit, cur_acc = train(args, vit, train_dl, opt, scheduler, epoch=10) # 先训练10个epoch先
+        vit, cur_acc = train(args, vit, train_dl, opt, scheduler, epoch=20) # 先训练10个epoch先
         # past_acc = cur_acc
         # while past_acc <= cur_acc:
         #     # acc保持上升的时候
