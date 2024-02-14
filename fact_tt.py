@@ -59,65 +59,6 @@ def test(model, dl):
 
     return acc.result()
 
-
-def lora_forward_attn_full(self, x):
-    """ LoRA设置q, k, v, o的时候的forward函数 """
-    B, N, C = x.shape
-    qkv = self.qkv(x)
-    q = self.q_LoRA(x)
-    k = self.k_LoRA(x)
-    v = self.v_LoRA(x)
-    qkv += torch.cat([q, k, v], dim=2)
-    qkv = qkv.reshape(B, N, 3,
-                      self.num_heads,
-                      C // self.num_heads).permute(2, 0, 3, 1, 4)
-    q, k, v = qkv[0], qkv[1], qkv[2]
-
-    attn = (q @ k.transpose(-2, -1)) * self.scale
-    attn = attn.softmax(dim=-1)
-    attn = self.attn_drop(attn)
-
-    x = (attn @ v).transpose(1, 2).reshape(B, N, C)
-    proj = self.proj(x)
-    proj += self.proj_LoRA(x)
-    x = self.proj_drop(proj)
-    return x
-
-def lora_forward_attn_qv(self, x):
-    """ LoRA设置q, k, v, o的时候的forward函数 """
-    B, N, C = x.shape
-    qkv = self.qkv(x)
-    q = vit.q_LoRA(x)
-    k = torch.zeros([B, N, C]) # 增量是一个零矩阵，这样就相当于不更新W_k了
-    v = vit.v_LoRA(x)
-    qkv += torch.cat([q, k, v], dim=2)
-    qkv = qkv.reshape(B, N, 3,
-                      self.num_heads,
-                      C // self.num_heads).permute(2, 0, 3, 1, 4)
-    q, k, v = qkv[0], qkv[1], qkv[2]
-
-    attn = (q @ k.transpose(-2, -1)) * self.scale
-    attn = attn.softmax(dim=-1)
-    attn = self.attn_drop(attn)
-
-    x = (attn @ v).transpose(1, 2).reshape(B, N, C)
-    proj = self.proj(x)
-    # proj += vit.proj_LoRA(x) 也不再更新W_o了
-    x = self.proj_drop(proj)
-    return x
-
-def lora_forward_mlp(self, x):
-    """ 之后可能会用到，先留在这边 """
-    B, N, C = x.shape
-    h = self.fc1(x)  # B n 4c
-    h += self.fc1_LoRA(x)
-    x = self.act(h)
-    x = self.drop(x)
-    h = self.fc2(x)
-    h += self.fc2_LoRA(x)
-    x = self.drop(h)
-    return x
-
 def fact_forward_attn(self, x):
     B, N, C = x.shape
     qkv = self.qkv(x)
@@ -190,48 +131,6 @@ def set_FacT(model, dim=8, s=1):
         elif len(list(_.children())) != 0:
             set_FacT(_, dim, s)
 
-
-def set_LoRA_full(model, dim=8, s=1):
-    """ 对所有的自注意力权重进行LoRA """
-    if type(model) == timm.models.vision_transformer.VisionTransformer:
-        pass # 此时不需要做任何事情
-    for _ in model.children():
-        if type(_) == timm.models.vision_transformer.Attention:
-            _.q_LoRA = lora.Linear(model_dim, model_dim, r=dim)
-            _.k_LoRA = lora.Linear(model_dim, model_dim, r=dim)
-            _.v_LoRA = lora.Linear(model_dim, model_dim, r=dim)
-            _.proj_LoRA = lora.Linear(model_dim, model_dim, r=dim)
-            bound_method = lora_forward_attn_full.__get__(_, _.__class__)
-            setattr(_, 'forward', bound_method)
-        elif type(_) == timm.models.layers.mlp.Mlp:
-            """ 只考虑自注意力的权重 """
-            # _.fc1_LoRA = lora.Linear(model_dim, model_dim * 4, r=dim)
-            # _.fc2_LoRA = lora.Linear(4 * model_dim, model_dim, r=dim)
-            # bound_method = lora_forward_mlp.__get__(_, _.__class__)
-            # setattr(_, 'forward', bound_method)
-        elif len(list(_.children())) != 0:
-            set_LoRA_full(_, dim, s)
-
-
-def set_LoRA_qv(model, dim=8, s=1):
-    """ 对qv进行LoRA """
-    if type(model) == timm.models.vision_transformer.VisionTransformer:
-        pass # 此时不需要做任何事情
-    for _ in model.children():
-        if type(_) == timm.models.vision_transformer.Attention:
-            _.q_LoRA = lora.Linear(model_dim, model_dim, r=dim)
-            _.v_LoRA = lora.Linear(model_dim, model_dim, r=dim)
-            bound_method = lora_forward_attn_qv.__get__(_, _.__class__)
-            setattr(_, 'forward', bound_method)
-        elif type(_) == timm.models.layers.mlp.Mlp:
-            """ 只考虑自注意力的权重"""
-            # _.fc1_LoRA = lora.Linear(model_dim, model_dim * 4, r=dim)
-            # _.fc2_LoRA = lora.Linear(4 * model_dim, model_dim, r=dim)
-            # bound_method = lora_forward_mlp.__get__(_, _.__class__)
-            # setattr(_, 'forward', bound_method)
-        elif len(list(_.children())) != 0:
-            set_LoRA_qv(_, dim, s)
-
 def set_seed(seed=0):
     np.random.seed(seed)
     random.seed(seed)
@@ -285,17 +184,14 @@ if __name__ == '__main__':
         args.dim = config['rank']
     if args.scale == 0:
         args.scale = config['scale']
-    # set_FacT(vit, dim=args.dim, s=args.scale)
-    set_LoRA_full(vit, dim=args.dim, s=args.scale)
+    set_FacT(vit, dim=args.dim, s=args.scale)
     trainable = []
     vit.reset_classifier(get_classes_num(name))
     total_param = 0
     for n, p in vit.named_parameters():
-        if ('lora' in n or 'head' in n) and (p.requires_grad is True):
+        if ('fACt' in n or 'head' in n) and (p.requires_grad is True) and ('FacTu' not in n):
             trainable.append(p)
             if 'head' not in n and (p.requires_grad is True):
-                # print(f" name {n}, num {p.numel()}")
-                # print(f"name {n} shape {p.shape}")
                 total_param += p.numel()
         else:
             p.requires_grad = False
@@ -303,33 +199,11 @@ if __name__ == '__main__':
     opt = AdamW(trainable, lr=args.lr, weight_decay=args.wd)
     scheduler = CosineLRScheduler(opt, t_initial=100,
                                   warmup_t=10, lr_min=1e-5, warmup_lr_init=1e-6, decay_rate=0.1)
-    # if opt == None:
-    #     print("error")
-    # vit = rank_descend(args, vit, train_dl)
     vit, cur_acc = train(args, vit, train_dl, opt, scheduler, epoch=100)
     print(f"cur acc is {cur_acc}")
-    # for i in range(10):
-    #     vit = freeze_FacT(vit)
-    #     # 重新统计此时参数数量
-    #     trainable = []
-    #     total_param = 0
-    #     for n, p in vit.named_parameters():
-    #         if ('FacT' in n or 'head' in n) and (p.requires_grad is True) and ('FacTu' not in n):
-    #             trainable.append(p)
-    #             if 'head' not in n and (p.requires_grad is True):
-    #                 # print(f"1 name {n}, num {p.numel()}")
-    #                 total_param += p.numel()
-    #         else:
-    #             p.requires_grad = False
-    #     print(f"total_param is {total_param}, rank is {vit.dim} now")
-    #     # opt = AdamW(trainable, lr=args.lr, weight_decay=args.wd)
-    #     # scheduler = CosineLRScheduler(opt, t_initial=100,
-    #     #                           warmup_t=10, lr_min=1e-5, warmup_lr_init=1e-6, decay_rate=0.1)
-    
-    #     vit, cur_acc = train(args, vit, train_dl, opt, scheduler, epoch=10)
-    #     print(f"cur acc is {cur_acc}")
-    # # showDim(vit)
-    # # print(f"trace back acc is {test(vit, test_dl)[1]}")
-    # vit = train(args, vit, train_dl, opt, scheduler, epoch=10)[0]
+    while True:
+        vit = freeze_FacT(vit)
+        vit, cur_acc = train(args, vit, train_dl, opt, scheduler, epoch=10)
+        print(f"cur acc is {cur_acc}")
     print('acc1:', args.best_acc)
     print(f"optimal rank is {vit.dim}")
